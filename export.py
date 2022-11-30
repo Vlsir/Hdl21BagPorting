@@ -4,7 +4,7 @@ from enum import Enum
 from pathlib import Path
 from dataclasses import field
 from types import ModuleType
-from typing import Any, Dict, List, Tuple, Set, Optional
+from typing import Any, Dict, List, Tuple, Set, Optional, Union
 from pydantic.dataclasses import dataclass
 from ruamel.yaml import YAML
 
@@ -358,6 +358,7 @@ def ordered_stuff():
         print(p)
         print_schematic_stuff(sch)
 
+
 def print_schematic_stuff(sch: BagSchematic):
     """# Print some fun facts about schematic `sch`. """
 
@@ -379,20 +380,68 @@ def print_schematic_stuff(sch: BagSchematic):
 
 
 @dataclass
-class Something:
+class Bus:
     """# Result of parsing and converting the maybe-scalar, maybe-bus names such as `i0<3:0>`.
-    These names are used for schematic instances and terminals (ports) to indicate their widths. 
-    FIXME: what should this be called? Not `Something`!"""
+    These names are used for schematic instances and terminals (ports) to indicate their widths. """
 
     name: str
     width: int
 
 
-def parse_instance_or_port_name(name: str) -> Something:
+@dataclass
+class Bus:
+    name: str
+    width: int
+
+
+@dataclass
+class SignalRef:
+    """# Reference to a Signal"""
+
+    name: str
+
+
+@dataclass
+class Range:
+    """ # Slice Range, e.g. <3:1>"""
+
+    top: int
+    bot: int
+
+
+@dataclass
+class Slice:
+    """ # Signal Slice"""
+
+    name: str
+    index: Union[int, Range]
+
+
+@dataclass
+class Repeat:
+    """# Signal Repitition"""
+
+    name: str
+    n: int
+
+
+@dataclass
+class Concat:
+    """# Signal Concatenation"""
+
+    parts: List["Connection"]
+
+
+# The union-type of things that can be connected to an instance port
+Connection = Union[SignalRef, Repeat, Concat, Slice]
+
+
+def parse_instance_or_port_name(name: str) -> Bus:
     """
-    Instance and port names use something like this format:
+    Instance and port names use this format:
     * i0 == single instance
     * i1<3:0> == array of four
+    Both are parsed as the `Bus` type, the former with a width of 1.
 
     Connection names also "concatenate" with commas,
     and "replicate" with <*N> type notation,
@@ -404,36 +453,96 @@ def parse_instance_or_port_name(name: str) -> Something:
     if "," in name or "*" in name:
         _fail()
 
-    if "<" not in name: # Scalar case 
-        return Something(name=name, width=1)
+    if "<" not in name:  # Scalar case
+        return Bus(name=name, width=1)
 
-    # OK now the fun part, parsing apart name and width.
-    # Format: `name<width:0>`
-    # The angle-bracket part must be at the end, and the low-side index must be zero. Or fail. 
+    # Otherwise, parse the name as a `Slice`, and check that it's valid for a bus
+    slice = parse_slice(name)
+    if not isinstance(slice.index, Range) or slice.index.bot != 0:
+        _fail()
+    return Bus(name=name, width=slice.top + 1)
+
+    # # OK now the fun part, parsing apart name and width.
+    # # Format: `name<width:0>`
+    # # The angle-bracket part must be at the end, and the low-side index must be zero. Or fail.
+    # split = name.split("<")
+    # if len(split) != 2:
+    #     _fail()
+    # name, suffix = split[0], split[1]
+    # if not suffix.endswith(">"):
+    #     _fail()
+    # suffix = suffix[:-1]  # Strip out the ending ">"
+    # split = suffix.split(":")
+    # if len(split) != 2:
+    #     _fail()
+    # if split[1] != "0":
+    #     _fail()
+    # try:  # Convert the leading section to an integer
+    #     width = int(split[0])
+    # except:
+    #     fail(f"Could not covert `{split[0]}` to int in `{name}`")
+
+    # # Success
+    # return Bus(name=name, width=width)
+
+
+def parse_connection(conn: str) -> Connection:
+    """
+    # Parse a `Connection` from YAML-format string `conn`
+    Formats: 
+    * Repeat == `<*3>foo
+    * Concat == `bar,baz`
+    * Slice == `foo<3:1>`
+    * SignalRef == `foo`
+    """
+    if "," in conn:
+        # This will create and return a `Concat`
+        # Recursively parse each part
+        parts = conn.split(",")
+        parts = [parse_connection(part) for part in parts]
+        return Concat(parts)
+
+    # Not a concatenation: either a bus, a slice, or a repeat
+    if conn.startswith("<*"):
+        # That's a repeat
+        raise TabError("?")
+
+    if conn.endswith(">"):
+        # That's a slice
+        raise TabError("?")
+
+    # Otherwise we've got a scalar signal reference
+    return SignalRef(name=conn)
+
+
+def parse_slice(name: str) -> Slice:
+    """# Parse a `Slice` from YAML-format string `name`. 
+    Format: `name<width-1:0>`
+    The angle-bracket part must be at the end, or fail."""
+
+    _fail = lambda: fail(f"Invalid Slice syntax {name}")
+
+    if not name.endswith(">"):
+        _fail()
+
     split = name.split("<")
     if len(split) != 2:
         _fail()
+
     name, suffix = split[0], split[1]
-    if not suffix.endswith(">"):
-        _fail()
     suffix = suffix[:-1]  # Strip out the ending ">"
+
+    if ":" not in suffix:  # Single index
+        return Slice(name=name, index=int(suffix))
+
+    # Range case
     split = suffix.split(":")
     if len(split) != 2:
         _fail()
-    if split[1] != "0":
-        _fail()
-    try:  # Convert the leading section to an integer
-        width = int(split[0])
-    except:
-        fail(f"Could not covert `{split[0]}` to int in `{name}`")
+    top = int(split[0])
+    bot = int(split[1])
+    return Slice(name=name, index=Range(top, bot))
 
-    # Success
-    return Something(name=name, width=width)
-
-@dataclass 
-class Repeat:
-    
-def parse_connection(conn: str) -> Something:
 
 def main():
     # Step 1: look for candidate python-module / schematic-YAML pairs
