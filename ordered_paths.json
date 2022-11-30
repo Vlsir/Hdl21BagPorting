@@ -838,11 +838,5 @@
         "cell_name": "pmos4_analog",
         "module_path": "/tools/B/dan_fritchman/sky130/bag3-sky130-2/xbase/src/xbase/schematic/pmos4_analog.py",
         "sch_path": "/tools/B/dan_fritchman/sky130/bag3-sky130-2/xbase/src/xbase/schematic/netlist_info/pmos4_analog.yaml"
-    },
-    {
-        "lib_name": "bullshit",
-        "cell_name": "sch",
-        "module_path": "/tools/B/dan_fritchman/sky130/bag3-sky130-2/bullshit/src/bullshit/schematic/sch.py",
-        "sch_path": "/tools/B/dan_fritchman/sky130/bag3-sky130-2/bullshit/src/bullshit/schematic/netlist_info/sch.yaml"
-    }
+    } 
 ]
