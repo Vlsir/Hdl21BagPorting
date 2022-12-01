@@ -332,7 +332,7 @@ def ordered_stuff():
     Lots of file-side caching of intermediate results being debugged in here,
     especially after some long searches over the file system.
     """
-    # paths = json.load(open("paths.json", "r"))
+    # paths = json.load(open("data/paths.json", "r"))
     # paths = [SchematicGeneratorPaths(**path) for path in paths]
     # paths = {(path.lib_name, path.cell_name): path for path in paths}
 
@@ -344,13 +344,13 @@ def ordered_stuff():
     # print(f"ORDER: {accum}")
     # if not_found:
     #     raise TabError()
-    # open("order.json", "w").write(json.dumps(accum))
+    # open("data/order.json", "w").write(json.dumps(accum))
 
-    # order = json.load(open("order.json", "r"))
+    # order = json.load(open("data/order.json", "r"))
     # ordered_paths = [paths[tuple(k)] for k in order if tuple(k) not in prim_cells]
-    # open("ordered_paths.json", "w").write(json.dumps(ordered_paths, default=pydantic_encoder))
+    # open("data/ordered_paths.json", "w").write(json.dumps(ordered_paths, default=pydantic_encoder))
 
-    ordered = json.load(open("ordered_paths.json", "r"))
+    ordered = json.load(open("data/ordered_paths.json", "r"))
     ordered = [SchematicGeneratorPaths(**paths) for paths in ordered]
 
     for p in ordered:
@@ -360,7 +360,7 @@ def ordered_stuff():
 
 
 def print_schematic_stuff(sch: BagSchematic):
-    """# Print some fun facts about schematic `sch`. """
+    """# Print some fun facts about schematic `sch`."""
 
     print(f"({(sch.lib_name, sch.cell_name)})")
 
@@ -372,24 +372,25 @@ def print_schematic_stuff(sch: BagSchematic):
         print(f"  {name} {term.inner.direction}")
 
     print(f"depends on:")
+    internal_signals: Set[str] = set()
     for inst in sch.instances.values():
         print(f"     {(inst.lib_name, inst.cell_name)}")
         for portname, signame in inst.connections.items():
-            if signame not in terminal_names:
-                print(f"Internal signal: {signame}")
+            conn = parse_connection(signame)
+            sigs = get_signal_refs(conn)
+            for sig in sigs:
+                if sig not in terminal_names:
+                    internal_signals.add(sig)
+
+    print("  Internal signals:")
+    print(f"  {internal_signals}")
 
 
 @dataclass
 class Bus:
     """# Result of parsing and converting the maybe-scalar, maybe-bus names such as `i0<3:0>`.
-    These names are used for schematic instances and terminals (ports) to indicate their widths. """
+    These names are used for schematic instances and terminals (ports) to indicate their widths."""
 
-    name: str
-    width: int
-
-
-@dataclass
-class Bus:
     name: str
     width: int
 
@@ -403,7 +404,7 @@ class SignalRef:
 
 @dataclass
 class Range:
-    """ # Slice Range, e.g. <3:1>"""
+    """# Slice Range, e.g. <3:1>"""
 
     top: int
     bot: int
@@ -411,7 +412,7 @@ class Range:
 
 @dataclass
 class Slice:
-    """ # Signal Slice"""
+    """# Signal Slice"""
 
     name: str
     index: Union[int, Range]
@@ -421,8 +422,8 @@ class Slice:
 class Repeat:
     """# Signal Repitition"""
 
-    name: str
-    n: int
+    target: Union[SignalRef, Slice]
+    num: int
 
 
 @dataclass
@@ -434,6 +435,9 @@ class Concat:
 
 # The union-type of things that can be connected to an instance port
 Connection = Union[SignalRef, Repeat, Concat, Slice]
+
+# Patch up our self-references in that set of types
+Concat.__pydantic_model__.update_forward_refs()
 
 
 def parse_instance_or_port_name(name: str) -> Bus:
@@ -448,10 +452,9 @@ def parse_instance_or_port_name(name: str) -> Bus:
     which (we think?) isn't allowed here.
     But check for it, and fail if it happens.
     """
-    _fail = lambda: fail(f"Invalid instance or port name {name}")
 
     if "," in name or "*" in name:
-        _fail()
+        fail(f"Invalid instance or port name {name}")
 
     if "<" not in name:  # Scalar case
         return Bus(name=name, width=1)
@@ -459,37 +462,16 @@ def parse_instance_or_port_name(name: str) -> Bus:
     # Otherwise, parse the name as a `Slice`, and check that it's valid for a bus
     slice = parse_slice(name)
     if not isinstance(slice.index, Range) or slice.index.bot != 0:
-        _fail()
-    return Bus(name=name, width=slice.top + 1)
+        fail(f"Invalid instance or port name {name}")
 
-    # # OK now the fun part, parsing apart name and width.
-    # # Format: `name<width:0>`
-    # # The angle-bracket part must be at the end, and the low-side index must be zero. Or fail.
-    # split = name.split("<")
-    # if len(split) != 2:
-    #     _fail()
-    # name, suffix = split[0], split[1]
-    # if not suffix.endswith(">"):
-    #     _fail()
-    # suffix = suffix[:-1]  # Strip out the ending ">"
-    # split = suffix.split(":")
-    # if len(split) != 2:
-    #     _fail()
-    # if split[1] != "0":
-    #     _fail()
-    # try:  # Convert the leading section to an integer
-    #     width = int(split[0])
-    # except:
-    #     fail(f"Could not covert `{split[0]}` to int in `{name}`")
-
-    # # Success
-    # return Bus(name=name, width=width)
+    # Success: return a new `Bus` declaration
+    return Bus(name=name, width=slice.index.top + 1)
 
 
 def parse_connection(conn: str) -> Connection:
     """
     # Parse a `Connection` from YAML-format string `conn`
-    Formats: 
+    Formats:
     * Repeat == `<*3>foo
     * Concat == `bar,baz`
     * Slice == `foo<3:1>`
@@ -503,20 +485,40 @@ def parse_connection(conn: str) -> Connection:
         return Concat(parts)
 
     # Not a concatenation: either a bus, a slice, or a repeat
-    if conn.startswith("<*"):
-        # That's a repeat
-        raise TabError("?")
+    if conn.startswith("<*"):  # Parse as a `Repeat`
+        return parse_repeat(conn)
 
-    if conn.endswith(">"):
-        # That's a slice
-        raise TabError("?")
+    if conn.endswith(">"):  # Parse as a `Slice`
+        return parse_slice(conn)
 
     # Otherwise we've got a scalar signal reference
     return SignalRef(name=conn)
 
 
+def parse_repeat(conn: str) -> Repeat:
+    """# Signal Repitition
+    Example: `<*2>VSS`
+    Sadly "repeats of Slices" are supported, e.g. `<*2>foo<1>`.
+    We guess that must be right-associative, i.e. this is saying
+    `<*2> (foo<1>)`, or "repeat the 1th bit of `foo` twice`."""
+
+    # Search for the *first* ">"
+    idx = conn.index(">")
+    prefix, suffix = conn[: idx + 1], conn[idx + 1 :]
+
+    # Convert the integer part of the prefix. Rip off the "<*" and ">"
+    num = int(prefix[2:-1])
+
+    if suffix.endswith(">"):
+        target = parse_slice(suffix)
+    else:
+        target = SignalRef(suffix)
+
+    return Repeat(target, num)
+
+
 def parse_slice(name: str) -> Slice:
-    """# Parse a `Slice` from YAML-format string `name`. 
+    """# Parse a `Slice` from YAML-format string `name`.
     Format: `name<width-1:0>`
     The angle-bracket part must be at the end, or fail."""
 
@@ -542,6 +544,26 @@ def parse_slice(name: str) -> Slice:
     top = int(split[0])
     bot = int(split[1])
     return Slice(name=name, index=Range(top, bot))
+
+
+def get_signal_refs(conn: Connection) -> Set[str]:
+    """# Get all the signal (names) referred to by potentially nested connection `conn`."""
+
+    def helper(conn: Connection, seen: Set[str]):
+        # Recursive helper implementation
+        if isinstance(conn, (SignalRef, Slice)):
+            seen.add(conn.name)
+        elif isinstance(conn, Concat):
+            [helper(part, seen) for part in conn.parts]
+        elif isinstance(conn, Repeat):
+            helper(conn.target, seen)
+        else:
+            raise TypeError(conn)
+
+    # Kick off our recursive helper with an empty set
+    rv = set()
+    helper(conn, rv)
+    return rv
 
 
 def main():
