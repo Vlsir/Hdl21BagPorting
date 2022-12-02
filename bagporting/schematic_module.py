@@ -106,9 +106,8 @@ class SchematicModule:
 
 
 def parse_port(name: str, terminal: BagSchematicTerminal) -> Port:
-    print(name)
+    """Parse an entry in the schematic `terminal` mapping to a `Port`."""
     bus = parse_instance_or_port_name(name)
-    print(bus)
     portdir = terminal.inner.direction
     return Port(name=bus.name, width=bus.width, portdir=portdir)
 
@@ -279,3 +278,8 @@ def get_signal_refs(conn: Connection) -> Set[str]:
     rv = set()
     helper(conn, rv)
     return rv
+
+
+def fail(msg: str):
+    """Error helper. Great place to stick a breakpoint."""
+    raise RuntimeError(msg)

@@ -40,15 +40,19 @@ class CodeWriter:
         sch = self.sch
 
         # Write some header stuff
-        # FIXME: add the schematic's dependencies
         self.writeln(f"import hdl21 as h")
         self.writeln(f"")
+
+        # Write the schematic's dependencies
+        for dep in sch.dependencies:
+            self.write_dependency(dep)
+        self.writeln("")
 
         # FIXME: write actual custom parameter types
         self.writeln(f"@h.paramclass")
         self.writeln(f"class Params:")
         self.indent += 1
-        self.writeln(f"... # coming soon?")
+        self.writeln(f"... # FIXME! ")
         self.indent -= 1
 
         # Create the Generator function
@@ -133,6 +137,22 @@ class CodeWriter:
             line = f'i.connect("{k}", {self.format_conn(v)})'
             self.writeln(line)
 
+    def write_dependency(self, dep: LibCell) -> None:
+        """
+        Write a dependency on module `dep`.
+        The format is:
+        * Each *external* library is treated as a Python package
+        * Each cell is a python module in that library, with the same name as its schematic/ generator
+        * Imports from *the same* library are done via the local-import syntax
+        """
+        lib = ""  # Leave the library/ package empty for local imports
+        if dep.lib != self.sch.bagsch.lib_name:
+            lib = dep.lib
+        cell = dep.cell
+        # FIXME: these are commented for now, so we can text exec'ing code results without linking them all together.
+        line = f"# from {lib}.{cell} import {cell}"
+        self.writeln(line)
+
     def writeln(self, line: str):
         """Write a line with indentation"""
         self.code += self.tab * self.indent + line + "\n"
@@ -142,8 +162,10 @@ def bag_sch_to_code(bagsch: BagSchematic) -> str:
     convsch = convert_schematic(bagsch)
     return CodeWriter(convsch).to_code()
 
+
 def bag_sch_path_to_code(path: Path) -> str:
     """Load a YAML schematic from `path` and convert it to Hdl21 Python code."""
     sch = load_sch(path)
     code = bag_sch_to_code(sch)
+    exec(code)
     return black.format_str(code, mode=black.FileMode())

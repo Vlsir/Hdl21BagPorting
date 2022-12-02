@@ -231,8 +231,3 @@ def print_schematic_stuff(sch: BagSchematic):
 
     print("  Internal signals:")
     print(f"  {internal_signals}")
-
-
-def fail(msg: str):
-    """Error helper. Great place to stick a breakpoint."""
-    raise RuntimeError(msg)
