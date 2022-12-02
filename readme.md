@@ -1,8 +1,8 @@
 
-# Bag => Hdl21 Schematic Porting 
+# Bag Schematic => Hdl21 Porting 
 
-WIP scripting to port BAG schematic-YAML and generators to Hdl21.  
-This is **highly informal** and intended to be used in ad-hoc, grad-student-grade modes. 
+Scripting to port BAG schematic-YAML and generators to Hdl21 Python code.  
+**Highly informal** and intended to be used in ad-hoc, grad-student-grade modes. 
 
 
 ## Usage
