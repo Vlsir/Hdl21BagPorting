@@ -1,14 +1,17 @@
-"""
-# BAG Schematic Porting 
-
-Data Model 
+""" 
+# Bag Schematic
+Data Model
 """
 
 from enum import Enum
 from pathlib import Path
-from dataclasses import field
-from typing import Any, Dict, List, Tuple, Set, Union
+from typing import Any, Dict, List, Tuple, Set, Optional, Union
+
+# PyPi Imports
 from pydantic.dataclasses import dataclass
+from ruamel.yaml import YAML
+
+yaml = YAML()
 
 
 @dataclass
@@ -126,71 +129,17 @@ class SchematicGeneratorPaths:
     sch_path: Path
 
 
-@dataclass(frozen=True)
-class Bus:
-    """# Result of parsing and converting the maybe-scalar, maybe-bus names such as `i0<3:0>`.
-    These names are used for schematic instances and terminals (ports) to indicate their widths."""
+def load_sch(sch_yaml_path: Path) -> BagSchematic:
+    """Load `sch_yaml_path` to a `BagSchematic`."""
 
-    name: str
-    width: int
+    # Load the schematic-yaml
+    sch = yaml.load(open(sch_yaml_path, "r"))
+    # Convert it to a structured type
+    sch = BagSchematic(**sch)
 
+    # Check some stuff about it
+    if sch.view_name != "schematic":
+        raise RuntimeError(f"INVALID SCHEMATIC FOR {sch_yaml_path}: {sch['view_name']}")
 
-@dataclass(frozen=True)
-class SignalRef:
-    """# Reference to a Signal"""
-
-    name: str
-
-
-@dataclass
-class Range:
-    """# Slice Range, e.g. <3:1>"""
-
-    top: int
-    bot: int
-
-
-@dataclass
-class Slice:
-    """# Signal Slice"""
-
-    name: str
-    index: Union[int, Range]
-
-
-@dataclass
-class Repeat:
-    """# Signal Repitition"""
-
-    target: Union[SignalRef, Slice]
-    num: int
-
-
-@dataclass
-class Concat:
-    """# Signal Concatenation"""
-
-    parts: List["Connection"]
-
-
-# The union-type of things that can be connected to an instance port
-Connection = Union[SignalRef, Repeat, Concat, Slice]
-
-# Patch up our self-references in that set of types
-Concat.__pydantic_model__.update_forward_refs()
-
-
-@dataclass
-class Session:
-    """# Porting "Session"
-    More or less the global state of a run through all this action."""
-
-    candidates: Set[SourcePaths] = field(default_factory=set)
-    sourcepaths_to_generators: Dict[SourcePaths, SchematicGenerator] = field(
-        default_factory=dict
-    )
-    libcells_to_schematics: Dict[LibCell, BagSchematic] = field(default_factory=dict)
-    libcells_to_generators: Dict[LibCell, SchematicGenerator] = field(
-        default_factory=dict
-    )
-    not_found: Set[LibCell] = field(default_factory=set)
+    # Checks out; return it.
+    return sch
